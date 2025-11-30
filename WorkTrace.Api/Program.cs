@@ -8,15 +8,18 @@ using WorkTrace.Data;
 using WorkTrace.Data.Common.Setttings;
 using WorkTrace.Logic;
 using WorkTrace.Repositories;
-//using DotNetEnv;
+using DotNetEnv;
 
-//Env.Load();
+Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.Configure<WorkTraceDatabaseSettings>(
-    builder.Configuration.GetSection("WorkTraceDatabase"));
+builder.Services.Configure<WorkTraceDatabaseSettings>(options =>
+{
+    options.ConnectionString = Environment.GetEnvironmentVariable("WORKTRACEDATABASE_CONNECTIONSTRING");
+    options.DataBaseName = Environment.GetEnvironmentVariable("WORKTRACEDATABASE_DATABASENAME");
+});
 
 builder.Services.AddControllers();
 
@@ -42,8 +45,13 @@ builder.Services.AddRepositoriesServices();
 builder.Services.AddLogicServices();
 builder.Services.AddApplicationServices();
 
-builder.Services.Configure<JwtSettings>(
-    builder.Configuration.GetSection("ApplicationSettings"));
+builder.Services.Configure<JwtSettings>(options =>
+{
+    options.SecretKey = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_SECRETKEY");
+    options.Issuer = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_ISSUER");
+    options.Audience = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_AUDIENCE");
+    options.ExpireMinutes = int.Parse(Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_EXPIREMINUTES"));
+});
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -88,7 +96,13 @@ builder.Services.AddSwaggerGen(genConfig =>
         });
     });
 
-var jwtConfiguration = builder.Configuration.GetSection("ApplicationSettings").Get<JwtSettings>();
+var jwtConfiguration = new JwtSettings
+{
+    SecretKey = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_SECRETKEY"),
+    Issuer = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_ISSUER"),
+    Audience = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_AUDIENCE"),
+    ExpireMinutes = int.Parse(Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_EXPIREMINUTES"))
+};
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;

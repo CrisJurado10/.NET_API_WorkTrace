@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
-using System.Text.Json;
+﻿using System.Text.Json;
 using WorkTrace.Application.Services;
 using WorkTrace.Data.Models;
 
@@ -10,10 +9,10 @@ public class GeocodingService : IGeocodingService
     private readonly HttpClient _httpClient;
     private readonly string _apiKey;
 
-    public GeocodingService(HttpClient httpClient, IConfiguration config)
+    public GeocodingService(HttpClient httpClient)
     {
         _httpClient = httpClient;
-        _apiKey = config["GoogleMaps:ApiKey"];
+        _apiKey = Environment.GetEnvironmentVariable("GOOGLEMAPS_APIKEY");
     }
 
     public async Task<GeoPoint?> GetGeoPointAsync(string addressOrUrl)
