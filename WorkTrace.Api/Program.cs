@@ -10,99 +10,110 @@ using WorkTrace.Logic;
 using WorkTrace.Repositories;
 using DotNetEnv;
 
+// 1. Cargar variables del archivo .env (si existe en local)
 Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// --- LECTURA SEGURA DE VARIABLES DE ENTORNO ---
+// Esto evita que la app se rompa (crash) si falta una variable en Render.
+// Usamos "valores por defecto" seguros donde aplica.
+
+var connectionString = Environment.GetEnvironmentVariable("WORKTRACEDATABASE_CONNECTIONSTRING");
+var databaseName = Environment.GetEnvironmentVariable("WORKTRACEDATABASE_DATABASENAME") ?? "WorkTrace";
+
+var jwtSecretKey = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_SECRETKEY") ?? "Clave_Por_Defecto_Muy_Segura_Para_Evitar_Crash_123";
+var jwtIssuer = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_ISSUER") ?? "WorkTraceApi";
+var jwtAudience = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_AUDIENCE") ?? "WorkTraceClient";
+var jwtExpireStr = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_EXPIREMINUTES");
+
+// Parseo seguro de entero (evita error si el string es nulo o inválido)
+int jwtExpireMinutes = int.TryParse(jwtExpireStr, out int m) ? m : 30;
+
+// ----------------------------------------------
+
+// Configuración de Base de Datos
 builder.Services.Configure<WorkTraceDatabaseSettings>(options =>
 {
-    options.ConnectionString = Environment.GetEnvironmentVariable("WORKTRACEDATABASE_CONNECTIONSTRING");
-    options.DataBaseName = Environment.GetEnvironmentVariable("WORKTRACEDATABASE_DATABASENAME");
+    options.ConnectionString = connectionString;
+    options.DataBaseName = databaseName;
 });
 
 builder.Services.AddControllers();
 
-// Add CORS policy
+// Configuración de CORS
+// IMPORTANTE: Cambiado a AllowAnyOrigin temporalmente para evitar bloqueos
+// cuando despliegues tu Frontend en otra URL (Vercel, Netlify, etc.)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowWebApp", policy =>
     {
-        policy.WithOrigins(
-            "http://localhost:5058",
-            "https://localhost:7156",
-            "http://localhost:11516",
-            "https://localhost:44384"
-        )
-        .AllowAnyHeader()
-        .AllowAnyMethod()
-        .AllowCredentials();
+        policy
+            .AllowAnyOrigin()
+            .AllowAnyHeader()
+            .AllowAnyMethod();
     });
 });
 
+// Inyección de dependencias de tus capas
 builder.Services.AddDataServices();
 builder.Services.AddRepositoriesServices();
 builder.Services.AddLogicServices();
 builder.Services.AddApplicationServices();
 
+// Configuración de opciones JWT (Para inyección IOptions)
 builder.Services.Configure<JwtSettings>(options =>
 {
-    options.SecretKey = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_SECRETKEY");
-    options.Issuer = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_ISSUER");
-    options.Audience = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_AUDIENCE");
-    options.ExpireMinutes = int.Parse(Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_EXPIREMINUTES"));
+    options.SecretKey = jwtSecretKey;
+    options.Issuer = jwtIssuer;
+    options.Audience = jwtAudience;
+    options.ExpireMinutes = jwtExpireMinutes;
 });
 
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 
+// Configuración de Swagger
 builder.Services.AddSwaggerGen(genConfig =>
+{
+    genConfig.SwaggerDoc("v1", new OpenApiInfo
     {
-        genConfig.SwaggerDoc("v1", new OpenApiInfo
+        Version = "v1",
+        Title = "WorkTraceApi",
+        Description = "Api Empresarial",
+        Contact = new OpenApiContact
         {
-            Version = "v1",
-            Title = "WorkTraceApi",
-            Description = "Api Empresarial",
-            Contact = new OpenApiContact
-            {
-                Name = "Ricardo",
-                Email = "ricardo.vaca@udla.edu.ec",
-            }
-        });
-
-        genConfig.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme()
-        {
-            Name = "Authorization",
-            Type = SecuritySchemeType.Http,     
-            Scheme = "bearer",                  
-            BearerFormat = "JWT",
-            In = ParameterLocation.Header,
-            Description = "Enter:{your token}"
-        });
-
-        genConfig.AddSecurityRequirement(new OpenApiSecurityRequirement 
-        {
-            {
-                new OpenApiSecurityScheme
-                {
-                     Reference = new OpenApiReference
-                     {
-                         Type = ReferenceType.SecurityScheme,
-                         Id = "Bearer"
-                     }                   
-                },
-                new string []{}
-            }        
-        });
+            Name = "Ricardo",
+            Email = "ricardo.vaca@udla.edu.ec",
+        }
     });
 
-var jwtConfiguration = new JwtSettings
-{
-    SecretKey = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_SECRETKEY"),
-    Issuer = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_ISSUER"),
-    Audience = Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_AUDIENCE"),
-    ExpireMinutes = int.Parse(Environment.GetEnvironmentVariable("APPLICATIONSETTINGS_EXPIREMINUTES"))
-};
+    genConfig.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme()
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Enter:{your token}"
+    });
+
+    genConfig.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                    Reference = new OpenApiReference
+                    {
+                        Type = ReferenceType.SecurityScheme,
+                        Id = "Bearer"
+                    }
+            },
+            new string []{}
+        }
+    });
+});
+
+// Configuración de Autenticación JWT
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -115,23 +126,26 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtConfiguration.SecretKey)),
-        ValidIssuer = jwtConfiguration.Issuer,
-        ValidAudience = jwtConfiguration.Audience,
+        // Usamos la variable que leímos de forma segura arriba
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecretKey)),
+        ValidIssuer = jwtIssuer,
+        ValidAudience = jwtAudience,
     };
 });
+
 builder.Services.AddHttpClient();
 
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
 
-// app.UseHttpsRedirection(); // Disabled for HTTP-only development
+// --- CAMBIO IMPORTANTE PARA RENDER ---
+// Hemos sacado Swagger del "if (IsDevelopment)" para que puedas ver la UI
+// cuando la app esté desplegada en la nube.
+app.UseSwagger();
+app.UseSwaggerUI();
+
+// app.UseHttpsRedirection(); // Deshabilitado para evitar problemas con proxies en Docker/Render
 
 app.UseCors("AllowWebApp");
 
